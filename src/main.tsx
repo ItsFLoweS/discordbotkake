@@ -7,6 +7,8 @@ import './styles.css';
 import { App } from './App';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { desktop } from './api';
+// Keep right-click available to the editor without opening the WebView menu.
+document.addEventListener('contextmenu',event=>event.preventDefault(),{capture:true});
 document.addEventListener('click',event=>{const anchor=(event.target as Element)?.closest('a[href]');if(desktop&&anchor instanceof HTMLAnchorElement&&/^https?:/.test(anchor.href)){event.preventDefault();void openUrl(anchor.href).catch(console.error);}});
 class ErrorBoundary extends React.Component<React.PropsWithChildren, {error:string}> {
  state={error:''};static getDerivedStateFromError(error:Error){return {error:error.message};}

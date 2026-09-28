@@ -1,17 +1,18 @@
-import { useState, useMemo, useCallback, memo, type DragEvent } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, memo, type DragEvent } from 'react';
 import { ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
-import { MagnifyingGlass, Plus, X, ArrowRight, Trash, Copy, PauseCircle, CaretDown, DotsSixVertical, Info, SquaresFour, Check, ArrowSquareOut } from '@phosphor-icons/react';
+import { MagnifyingGlass, Plus, X, ArrowRight, Trash, Copy, PauseCircle, CaretDown, DotsSixVertical, Info, SquaresFour, Check, ArrowSquareOut, LockSimple } from '@phosphor-icons/react';
 import { byId, groups, catalog } from '../runtime/catalog.mjs';
 import { useEditor } from './store';
 import { GroupIcon, Empty } from './components';
 import type { BlockNode, Field, Run } from './types';
+import { CanvasMenu, type CanvasMenuState } from './CanvasMenu';
 const portNames:Record<string,string>={next:'Далее',true:'Да',false:'Нет',body:'Действия',done:'Готово',catch:'Ошибка'};
 const nodeTypes={block:memo(function Block({data,id,selected}:NodeProps<BlockNode>){
  const def=byId[data.kind];const select=useEditor(s=>s.select);if(!def)return <div className="flow-node invalid">Неизвестный блок: {data.kind}</div>;
  const summary=String(data.params.content||data.params.name||data.params.event||data.params.message||data.params.key||data.params.action||data.params.scenario||data.params.text||def.description);
  return <div className={`flow-node ${selected?'selected':''} category-${def.group}`} onDoubleClick={()=>select(id)}>
   {!data.kind.startsWith('trigger.')&&<Handle type="target" position={Position.Left}/>}
-  <div className="node-head"><span className="node-icon"><GroupIcon group={def.group} size={18}/></span><span>{data.label||def.title}</span>{data.breakpoint&&<PauseCircle size={15} weight="fill" className="breakpoint"/>}<DotsSixVertical size={17} className="muted"/></div>
+  <div className="node-head"><span className="node-icon"><GroupIcon group={def.group} size={18}/></span><span>{data.label||def.title}</span>{data.frozen&&<span title="Позиция зафиксирована"><LockSimple size={14}/></span>}{data.breakpoint&&<PauseCircle size={15} weight="fill" className="breakpoint"/>}<DotsSixVertical size={17} className="muted"/></div>
   <div className="node-description">{summary.length>105?summary.slice(0,105)+'…':summary}</div>
   <div className="node-bottom"><code>{data.kind}</code><span>{def.ports.length===1?'Далее':def.ports.length?'Ветвление':'Конец'}</span></div>
   {def.ports.map((port,i)=><Handle key={port} id={port} type="source" position={Position.Right} style={{top:`${((i+1)/(def.ports.length+1))*100}%`}} title={portNames[port]}><span className={`port-label ${port}`}>{def.ports.length>1?portNames[port]:''}</span></Handle>)}
@@ -60,7 +61,7 @@ function MessageBuilder({params,onChange}:{params:Record<string,unknown>;onChang
  </div>;
 }
 function Inspector(){const {project,scenarioId,selected,select,updateNode,renameNode,removeNode,toggleBreakpoint,copy,paste}=useEditor();const scenario=project?.scenarios.find(s=>s.id===scenarioId);const node=scenario?.nodes.find(n=>n.id===selected);const [advanced,setAdvanced]=useState(false);
- if(!node)return <aside className="inspector"><div className="panel-heading">Инспектор</div><div className="inspector-empty"><span className="large-outline"><ArrowSquareOut size={30}/></span><h3>Всё начинается с блока</h3><p>Выберите блок на холсте, чтобы настроить его поведение.</p><div className="shortcut-list"><span>Сохранить<kbd>Ctrl S</kbd></span><span>Отменить<kbd>Ctrl Z</kbd></span><span>Дублировать<kbd>Ctrl D</kbd></span><span>Выбрать несколько<kbd>Shift</kbd></span></div><div className="tip"><Info size={17}/><p>Перетащите связь от выхода одного блока ко входу другого.</p></div></div></aside>;
+ if(!node)return <aside className="inspector"><div className="panel-heading">Инспектор</div><div className="inspector-empty"><span className="large-outline"><ArrowSquareOut size={30}/></span><h3>Всё начинается с блока</h3><p>Нажмите блок, чтобы настроить его поведение.</p><div className="shortcut-list"><span>Сохранить<kbd>Ctrl S</kbd></span><span>Отменить<kbd>Ctrl Z</kbd></span><span>Выделить<kbd>Ctrl + ЛКМ</kbd></span><span>Переместить<kbd>ЛКМ</kbd></span><span>Масштаб<kbd>Колесо</kbd></span><span>Меню / новый блок<kbd>ПКМ</kbd></span></div><div className="tip"><Info size={17}/><p>Удерживайте Ctrl и тяните ЛКМ по пустому холсту для выделения рамкой.</p></div></div></aside>;
  if(node.type==='group')return <aside className="inspector"><div className="panel-heading">Группа<button className="icon" onClick={()=>select(null)}><X/></button></div><div className="inspector-body"><label className="field">Название<input value={node.data.label||''} onChange={e=>renameNode(node.id,e.target.value)}/></label><button onClick={()=>removeNode(node.id)}>Разгруппировать</button></div></aside>;
  const def=byId[node.data.kind];if(!def)return null;
  const advancedKeys=node.data.kind==='message.send'?['embeds','components','files','poll']:node.data.kind==='trigger.slash'?['options']:[];
@@ -72,20 +73,67 @@ function Inspector(){const {project,scenarioId,selected,select,updateNode,rename
  <div className="variable-hint"><span>Переменные в тексте</span><code>{'{{user.username}}'}</code><code>{'{{options.name}}'}</code><code>{'{{temp.result}}'}</code><code>{'{{global.name}}'}</code></div><div className="inspector-actions"><button onClick={()=>{copy();paste();}}><Copy size={15}/>Дублировать</button><button className={node.data.breakpoint?'active':''} onClick={()=>toggleBreakpoint(node.id)} title="Приостанавливает настоящий запуск на этом блоке"><PauseCircle size={15}/>Пауза</button><button className="icon danger-text" aria-label="Удалить блок" onClick={()=>removeNode(node.id)}><Trash size={16}/></button></div></div></aside>;
 }
 function Library(){const [search,setSearch]=useState(''),[expanded,setExpanded]=useState<string[]>(['triggers','messages']);const addNode=useEditor(s=>s.addNode);const {screenToFlowPosition}=useReactFlow();return <aside className="library"><div className="panel-heading">Блоки<span className="count">{catalog.length}</span></div><div className="search"><MagnifyingGlass size={17}/><input placeholder="Найти блок…" aria-label="Поиск блоков" value={search} onChange={e=>setSearch(e.target.value)}/><kbd>/</kbd></div><div className="library-groups">{groups.map(g=>{const items=g.items.filter(n=>`${n.title} ${n.description} ${n.id}`.toLowerCase().includes(search.toLowerCase()));if(!items.length)return null;const open=search||expanded.includes(g.id);return <section key={g.id}><button className={`group-heading ${open?'open':''}`} onClick={()=>setExpanded(expanded.includes(g.id)?expanded.filter(id=>id!==g.id):[...expanded,g.id])}><GroupIcon group={g.id} size={17}/><span>{g.title}</span><CaretDown size={12}/></button>{open&&<div className="group-items">{items.map(n=><button key={n.id} className="library-item" draggable title={n.description} onDragStart={e=>{e.dataTransfer.setData('application/dbk-node',n.id);e.dataTransfer.effectAllowed='move';}} onClick={()=>{const el=document.querySelector('.react-flow');const r=el?.getBoundingClientRect();addNode(n.id,r?screenToFlowPosition({x:r.left+r.width/2-140,y:r.top+r.height/2-60}):undefined);}}><span>{n.title}</span><Plus size={13}/></button>)}</div>}</section>;})}{!groups.some(g=>g.items.some(n=>`${n.title} ${n.description} ${n.id}`.toLowerCase().includes(search.toLowerCase())))&&<p className="no-results">Ничего не найдено</p>}</div><div className="library-footer"><span className="status-dot"/>Все блоки бесплатны</div></aside>;}
-function Canvas({runs}:{runs:Run[]}){const {project,scenarioId,changeNodes,changeEdges,connect,select,addNode,checkpoint,group}=useEditor();const scenario=project?.scenarios.find(s=>s.id===scenarioId);const {screenToFlowPosition}=useReactFlow();const active=runs.find(r=>r.scenario===scenarioId&&['running','paused'].includes(r.status));const nodes=useMemo(()=>scenario?.nodes.map(n=>({...n,className:active?.active===n.id?'executing':''}))||[],[scenario?.nodes,active?.active]);const drop=useCallback((e:DragEvent)=>{e.preventDefault();const kind=e.dataTransfer.getData('application/dbk-node');if(byId[kind])addNode(kind,screenToFlowPosition({x:e.clientX,y:e.clientY}));},[addNode,screenToFlowPosition]);
+function Canvas({runs}:{runs:Run[]}){
+ const {project,scenarioId,changeNodes,changeEdges,connect,select,addNode,checkpoint,group,focusNodes,toggleFrozen,moveNode,removeNode,copy,paste,toggleBreakpoint}=useEditor();
+ const scenario=project?.scenarios.find(s=>s.id===scenarioId);
+ const {screenToFlowPosition}=useReactFlow();
+ const [menu,setMenu]=useState<CanvasMenuState|null>(null);
+ const [moving,setMoving]=useState<string|null>(null);
+ const ctrl=useRef(false);
+ const active=runs.find(r=>r.scenario===scenarioId&&['running','paused'].includes(r.status));
+ const lockedIds=useMemo(()=>{
+  const locked=new Set<string>();const all=scenario?.nodes||[];
+  for(const node of all){let current:BlockNode|undefined=node;const visited=new Set<string>();while(current&&!visited.has(current.id)){if(current.data.frozen){locked.add(node.id);break;}visited.add(current.id);const parentId=current.parentId;current=parentId?all.find(n=>n.id===parentId):undefined;}}
+  return locked;
+ },[scenario?.nodes]);
+ const nodes=useMemo(()=>scenario?.nodes.map(n=>({...n,draggable:!lockedIds.has(n.id),className:[active?.active===n.id?'executing':'',lockedIds.has(n.id)?'frozen-node':''].filter(Boolean).join(' ')}))||[],[scenario?.nodes,active?.active,lockedIds]);
+ const drop=useCallback((e:DragEvent)=>{e.preventDefault();const kind=e.dataTransfer.getData('application/dbk-node');if(byId[kind])addNode(kind,screenToFlowPosition({x:e.clientX,y:e.clientY}));},[addNode,screenToFlowPosition]);
+ useEffect(()=>{setMenu(null);setMoving(null);},[scenarioId]);
+ useEffect(()=>{
+  const key=(event:KeyboardEvent)=>{ctrl.current=event.ctrlKey;if(event.key==='Escape'){setMenu(null);setMoving(null);}};
+  const blur=()=>{ctrl.current=false;setMenu(null);setMoving(null);};
+  window.addEventListener('keydown',key,true);window.addEventListener('keyup',key,true);window.addEventListener('blur',blur);
+  return()=>{window.removeEventListener('keydown',key,true);window.removeEventListener('keyup',key,true);window.removeEventListener('blur',blur);};
+ },[]);
+ const openMenu=(event:{preventDefault:()=>void;stopPropagation:()=>void;clientX:number;clientY:number},nodeId?:string)=>{
+  event.preventDefault();event.stopPropagation();setMoving(null);
+  if(nodeId){if(!scenario?.nodes.find(n=>n.id===nodeId)?.selected)focusNodes([nodeId]);else select(nodeId);}
+  setMenu({x:event.clientX,y:event.clientY,position:screenToFlowPosition({x:event.clientX,y:event.clientY}),nodeId});
+ };
+ const menuNode=scenario?.nodes.find(n=>n.id===menu?.nodeId);
+ const menuAction=(action:'settings'|'copy'|'duplicate'|'move'|'freeze'|'breakpoint'|'group'|'delete')=>{
+  if(!menuNode)return;const id=menuNode.id;
+  switch(action){
+   case 'settings':select(id);break;
+   case 'copy':focusNodes([id]);copy();break;
+   case 'duplicate':focusNodes([id]);copy();paste();break;
+   case 'move':if(!lockedIds.has(id))setMoving(id);break;
+   case 'freeze':toggleFrozen(id);break;
+   case 'breakpoint':toggleBreakpoint(id);break;
+   case 'group':group();break;
+   case 'delete':removeNode(id);break;
+  }
+  setMenu(null);
+ };
  if(!scenario)return <Empty title="Добавьте сценарий" text="Каждый сценарий хранит отдельную логику вашего бота."/>;
  return (
-  <div className="canvas-wrap">
-   <ReactFlow
+  <div className={`canvas-wrap ${moving?'placing-node':''}`} onPointerDownCapture={event=>{
+   ctrl.current=event.ctrlKey;
+   if(moving&&event.button===0){event.preventDefault();event.stopPropagation();moveNode(moving,screenToFlowPosition({x:event.clientX,y:event.clientY}));setMoving(null);}
+  }}>
+   <ReactFlow<BlockNode>
     key={scenarioId}
     nodes={nodes}
     edges={scenario.edges}
     nodeTypes={nodeTypes}
-    onNodesChange={changeNodes}
-    onEdgesChange={changeEdges}
+    onNodesChange={changes=>{const accepted=changes.filter(change=>change.type!=='select'||ctrl.current);if(accepted.length)changeNodes(accepted);}}
+    onEdgesChange={changes=>{const accepted=changes.filter(change=>change.type!=='select'||ctrl.current);if(accepted.length)changeEdges(accepted);}}
     onConnect={connect}
-    onNodeClick={(_,n)=>select(n.id)}
-    onPaneClick={()=>select(null)}
+    onNodeClick={(event,n)=>{if(!event.ctrlKey)focusNodes([]);select(n.id);setMenu(null);}}
+    onPaneClick={()=>{if(!ctrl.current)focusNodes([]);setMenu(null);}}
+    onNodeContextMenu={(event,node)=>openMenu(event,node.id)}
+    onPaneContextMenu={event=>openMenu(event)}
+    onMoveStart={()=>setMenu(null)}
     onNodeDragStart={checkpoint}
     onDrop={drop}
     onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='move';}}
@@ -94,10 +142,16 @@ function Canvas({runs}:{runs:Run[]}){const {project,scenarioId,changeNodes,chang
     minZoom={.2}
     maxZoom={1.8}
     deleteKeyCode={['Backspace','Delete']}
-    selectionKeyCode="Shift"
-    panOnScroll
-    selectionOnDrag
-    panOnDrag={[1,2]}
+    selectionKeyCode="Control"
+    multiSelectionKeyCode="Control"
+    selectNodesOnDrag={false}
+    selectionOnDrag={false}
+    panOnScroll={false}
+    zoomOnScroll
+    zoomOnPinch
+    zoomOnDoubleClick={false}
+    zoomActivationKeyCode={null}
+    panOnDrag={[0,1]}
     defaultEdgeOptions={{
      type:'smoothstep',
      style:{stroke:'var(--edge)',strokeWidth:1.7}
@@ -118,6 +172,20 @@ function Canvas({runs}:{runs:Run[]}){const {project,scenarioId,changeNodes,chang
     <SquaresFour size={16}/>Группа
    </button>
    {active&&<div className="run-indicator"><span className="status-dot pulse"/>{active.status==='paused'?'Выполнение на паузе':'Сценарий выполняется'}</div>}
+   {moving&&<div className="move-node-hint">Нажмите ЛКМ на новое место · Esc — отмена</div>}
+   {menu&&<CanvasMenu
+    key={`${scenarioId}:${menu.nodeId||'pane'}:${menu.x}:${menu.y}`}
+    menu={menu}
+    title={menuNode?.data.label||byId[menuNode?.data.kind||'']?.title||(menuNode?.type==='group'?'Группа':undefined)}
+    frozen={Boolean(menuNode?.data.frozen)}
+    parentFrozen={Boolean(menuNode&&!menuNode.data.frozen&&lockedIds.has(menuNode.id))}
+    isGroup={menuNode?.type==='group'}
+    breakpoint={Boolean(menuNode?.data.breakpoint)}
+    canGroup={scenario.nodes.filter(n=>n.selected&&n.type!=='group'&&!n.parentId).length>1}
+    onClose={()=>setMenu(null)}
+    onAdd={kind=>{addNode(kind,menu.position);setMenu(null);}}
+    onAction={menuAction}
+   />}
   </div>
  );
 }

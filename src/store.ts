@@ -5,6 +5,7 @@ import type { Project, BlockNode, Scenario } from './types';
 const id=()=>crypto.randomUUID();
 export function makeNode(kind:string,x=100,y=120):BlockNode{return {id:id(),type:'block',position:{x,y},data:{kind,params:defaults(kind)}};}
 type EditorStore={project:Project|null;scenarioId:string;selected:string|null;dirty:boolean;history:Project[];future:Project[];clipboard:BlockNode[];clipboardEdges:Edge[];
+ focusNodes:(ids:string[])=>void;toggleFrozen:(id:string)=>void;moveNode:(id:string,position:{x:number;y:number})=>void;
  open:(p:Project)=>void;close:()=>void;checkpoint:()=>void;undo:()=>void;redo:()=>void;setScenario:(id:string)=>void;select:(id:string|null)=>void;changeNodes:(c:NodeChange<BlockNode>[])=>void;changeEdges:(c:EdgeChange[])=>void;connect:(c:Connection)=>void;addNode:(kind:string,position?:{x:number;y:number})=>void;updateNode:(id:string,patch:Record<string,unknown>)=>void;renameNode:(id:string,label:string)=>void;toggleBreakpoint:(id:string)=>void;removeNode:(id:string)=>void;newScenario:()=>void;updateScenario:(id:string,patch:Partial<Scenario>)=>void;deleteScenario:(id:string)=>void;updateProject:(patch:Partial<Project>)=>void;markSaved:()=>void;copy:()=>void;paste:()=>void;group:()=>void;
 };
 export const useEditor=create<EditorStore>((set,get)=>{
@@ -15,6 +16,15 @@ export const useEditor=create<EditorStore>((set,get)=>{
  undo:()=>{const {history,project,future}=get();if(!history.length||!project)return;const p=history.at(-1)!;set({project:p,history:history.slice(0,-1),future:[project,...future],dirty:true,selected:null,scenarioId:p.scenarios.some(s=>s.id===get().scenarioId)?get().scenarioId:p.scenarios[0]?.id||''});},
  redo:()=>{const {history,project,future}=get();if(!future.length||!project)return;const p=future[0];set({project:p,history:[...history,project],future:future.slice(1),dirty:true,selected:null,scenarioId:p.scenarios.some(s=>s.id===get().scenarioId)?get().scenarioId:p.scenarios[0]?.id||''});},
  setScenario:scenarioId=>set({scenarioId,selected:null}),select:selected=>set({selected}),
+ focusNodes:ids=>{const p=get().project;if(!p)return;set({selected:ids.at(-1)||null,project:{...p,scenarios:p.scenarios.map(s=>s.id===get().scenarioId?{...s,nodes:s.nodes.map(n=>({...n,selected:ids.includes(n.id)})),edges:s.edges.map(e=>({...e,selected:false}))}:s)}});},
+ toggleFrozen:nodeId=>change((_,s)=>{const n=s.nodes.find(n=>n.id===nodeId);if(n)n.data.frozen=!n.data.frozen;}),
+ moveNode:(nodeId,position)=>change((_,s)=>{
+  const n=s.nodes.find(n=>n.id===nodeId);if(!n||n.data.frozen)return;
+  let parent=s.nodes.find(p=>p.id===n.parentId);const seen=new Set<string>();
+  while(parent&&!seen.has(parent.id)){if(parent.data.frozen)return;seen.add(parent.id);parent=s.nodes.find(p=>p.id===parent!.parentId);}
+  // A point chosen on the canvas is absolute; detach from the previous group.
+  delete n.parentId;delete n.extent;n.position=position;
+ }),
  changeNodes:c=>{if(c.every(x=>x.type==='select'||x.type==='dimensions')){const p=get().project;if(!p)return;set({project:{...p,scenarios:p.scenarios.map(s=>s.id===get().scenarioId?{...s,nodes:applyNodeChanges(c,s.nodes)}:s)}});return;}change((_,s)=>{s.nodes=applyNodeChanges(c,s.nodes);s.edges=s.edges.filter(e=>s.nodes.some(n=>n.id===e.source)&&s.nodes.some(n=>n.id===e.target));},c.some(x=>x.type==='remove'));},
  changeEdges:c=>{if(c.every(x=>x.type==='select')){const p=get().project;if(!p)return;set({project:{...p,scenarios:p.scenarios.map(s=>s.id===get().scenarioId?{...s,edges:applyEdgeChanges(c,s.edges)}:s)}});return;}change((_,s)=>{s.edges=applyEdgeChanges(c,s.edges);},c.some(x=>x.type==='remove'));},
  connect:c=>change((_,s)=>{if(c.source===c.target||s.nodes.find(n=>n.id===c.target)?.data.kind.startsWith('trigger.'))return;s.edges=s.edges.filter(e=>!(e.source===c.source&&(e.sourceHandle||'next')===(c.sourceHandle||'next')));s.edges=addEdge({...c,id:id(),type:'smoothstep'},s.edges);}),
