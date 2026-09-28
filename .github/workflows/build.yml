@@ -35,6 +35,8 @@ jobs:
           New-Item -ItemType Directory -Force src-tauri/resources/runtime | Out-Null
           Copy-Item -Path runtime/* -Destination src-tauri/resources/runtime -Recurse -Force
           Copy-Item -LiteralPath (Get-Command node).Source -Destination src-tauri/resources/node.exe
+      - name: Generate application icon
+        run: node scripts/prepare-icon.mjs
       - name: Build Windows executable and installer
         run: npm run tauri -- build
       - name: Upload installer

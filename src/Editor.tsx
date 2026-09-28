@@ -23,7 +23,7 @@ function FieldInput({field,value,onChange,scenarioId}:{field:Field;value:unknown
  if(field.type==='boolean')return <button className={`toggle ${value?'on':''}`} role="switch" aria-checked={Boolean(value)} aria-label={field.label} onClick={()=>onChange(!value)}><span/></button>;
  if(field.type==='select')return <select value={String(value??'')} onChange={e=>onChange(e.target.value)}>{field.options?.map(o=><option value={o} key={o}>{o}</option>)}</select>;
  if(field.type==='json'||field.type==='textarea')return <><textarea spellCheck={false} className={field.type==='json'?'code-input':''} rows={field.type==='json'?5:3} value={typeof value==='string'?value:JSON.stringify(value,null,2)} onChange={e=>{onChange(e.target.value);if(field.type==='json'){try{JSON.parse(e.target.value);setError('');}catch{setError('Проверьте JSON или используйте {{переменную}}');}}}/>{error&&<small className="field-warning">{error}</small>}</>;
- return <input type={field.type==='number'?'number':'text'} value={String(value??'')} onChange={e=>onChange(field.type==='number'?Number(e.target.value):e.target.value)} spellCheck={false}/>;
+ return <input type="text" inputMode={field.type==='number'?'decimal':undefined} value={String(value??'')} onChange={e=>onChange(field.type==='number'&&!e.target.value.includes('{')&&e.target.value!==''&&Number.isFinite(Number(e.target.value))?Number(e.target.value):e.target.value)} spellCheck={false}/>;
 }
 function OptionBuilder({value,onChange}:{value:unknown;onChange:(v:string)=>void}){
  let options:Record<string,unknown>[];try{options=typeof value==='string'?JSON.parse(value):value as Record<string,unknown>[];if(!Array.isArray(options))return null;}catch{return null;}

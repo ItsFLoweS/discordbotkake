@@ -27,7 +27,10 @@ async fn bridge(app: tauri::AppHandle, op: String, mut payload: Value) -> Result
             let entry = keyring::Entry::new("DBK", id).map_err(|e| e.to_string())?;
             payload["token"] = json!(entry.get_password().map_err(|_| "Сначала сохраните токен бота в настройках")?);
         }
-        app.state::<State>().0.lock().map_err(|e| e.to_string())?.call(&op, payload)
+        let project_id = payload["id"].as_str().map(str::to_owned);
+        let result = app.state::<State>().0.lock().map_err(|e| e.to_string())?.call(&op, payload)?;
+        if op == "project.delete" { if let Some(id) = project_id { if let Ok(entry) = keyring::Entry::new("DBK", &id) { let _ = entry.delete_credential(); } } }
+        Ok(result)
     }).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
@@ -54,7 +57,7 @@ async fn import_file() -> Result<Option<String>, String> {
     }).await.map_err(|e| e.to_string())?
 }
 fn main() {
-    tauri::Builder::default().setup(|app| {
+    tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| {
         let data = app.path().app_data_dir()?; std::fs::create_dir_all(&data)?;
         let resources = app.path().resource_dir()?;
         let root = if cfg!(debug_assertions) { std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..") } else { resources.join("resources") };
