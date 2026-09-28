@@ -1,0 +1,11 @@
+import type { Node, Edge } from '@xyflow/react';
+export type Field = { key:string; label:string; type:string; default:unknown; options?:string[] };
+export type Definition = {id:string;title:string;description:string;group:string;fields:Field[];ports:string[]};
+export type BlockData = {kind:string;params:Record<string,unknown>;label?:string;breakpoint?:boolean;[key:string]:unknown};
+export type BlockNode = Node<BlockData>;
+export type Scenario = {id:string;name:string;enabled:boolean;nodes:BlockNode[];edges:Edge[]};
+export type Project = {id:string;name:string;description:string;updated?:number;settings:{applicationId:string;guildId:string;intents:string[];status:string;activity:string};scenarios:Scenario[]};
+export type BotStatus = {status:string;username?:string;avatar?:string;guilds:number;ping:number;uptime:number;error?:string;runs?:number};
+export type ProjectSummary = {id:string;name:string;description:string;scenarios:number;updated:number;bot:BotStatus};
+export type Trace = {node:string;title:string;time:number;status:string;error?:string};
+export type Run = {id:string;status:string;scenario:string;active:string|null;trace:Trace[];temp:Record<string,unknown>;error?:string;started:number;finished?:number};

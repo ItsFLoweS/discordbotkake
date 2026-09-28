@@ -1,0 +1,31 @@
+import WebSocket from 'ws';
+import mqtt from 'mqtt';
+import net from 'node:net';
+import dgram from 'node:dgram';
+import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
+import { safeFile } from './store.mjs';
+const sockets=new Map(),servers=new Map(),voices=new Map();
+function waitEvent(target,event,timeout=10000){return new Promise((resolve,reject)=>{const timer=setTimeout(()=>done(Error('Тайм-аут соединения')),timeout);const success=()=>done();const error=e=>done(e);function done(e){clearTimeout(timer);target.off(event,success);target.off('error',error);e?reject(e):resolve();}target.once(event,success);target.once('error',error);});}
+export async function cleanup(project){for(const [key,s] of sockets)if(key.startsWith(project+':')){s.kind==='mqtt'?s.client.end(true):s.client.close();sockets.delete(key);}for(const [key,s] of servers)if(key.startsWith(project+':')){s.closeAllConnections();s.close();servers.delete(key);}for(const [key,v] of voices)if(key.startsWith(project+':')){v.player.stop();v.connection.destroy();voices.delete(key);}}
+export async function integration(kind,p,ctx){const project=ctx.project.id,key=`${project}:${p.name}`;
+ if(kind==='socket.connect'){
+  if(sockets.has(key))throw Error('Соединение с таким именем уже открыто');
+  if(p.protocol==='websocket'){const client=new WebSocket(p.url,{handshakeTimeout:10000,maxPayload:1_000_000});client.on('error',e=>ctx.services.error(e));try{await waitEvent(client,'open');}catch(e){client.terminate();throw e;}sockets.set(key,{kind:'websocket',client});client.on('message',data=>ctx.services.event('socket_message',{connection:p.name,value:data.toString()}));client.on('close',()=>sockets.delete(key));}
+  else{const client=mqtt.connect(p.url,{connectTimeout:10000,reconnectPeriod:2000});client.on('error',e=>ctx.services.error(e));try{await waitEvent(client,'connect');await client.subscribeAsync(p.topic);}catch(e){client.end(true);throw e;}sockets.set(key,{kind:'mqtt',client});client.on('message',(topic,data)=>ctx.services.event('mqtt_message',{connection:p.name,topic,value:data.toString()}));}
+  return {name:p.name,connected:true};
+ }
+ if(kind==='socket.send'){const s=sockets.get(key);if(!s)throw Error('Соединение не открыто');const text=typeof p.value==='string'?p.value:JSON.stringify(p.value);if(s.kind==='mqtt')await s.client.publishAsync(p.topic,text);else await new Promise((resolve,reject)=>s.client.send(text,e=>e?reject(e):resolve()));return true;}
+ if(kind==='socket.close'){const s=sockets.get(key);if(s){s.kind==='mqtt'?s.client.end(true):s.client.close();sockets.delete(key);}return true;}
+ if(kind==='network.send'){if(!Number.isInteger(p.port)||p.port<1||p.port>65535)throw Error('Неверный порт');const data=Buffer.from(String(p.value));if(data.length>60000)throw Error('Пакет больше 60 КБ');return new Promise((resolve,reject)=>{if(p.protocol==='tcp'){const socket=net.createConnection({host:p.host,port:p.port});socket.setTimeout(10000,()=>socket.destroy(Error('Тайм-аут TCP')));socket.once('connect',()=>socket.end(data));socket.once('error',reject);socket.once('close',hadError=>{if(!hadError)resolve({sent:data.length});});}else{const socket=dgram.createSocket('udp4');const timer=setTimeout(()=>{socket.close();reject(Error('Тайм-аут UDP'));},10000);socket.once('error',e=>{clearTimeout(timer);socket.close();reject(e);});socket.send(data,p.port,p.host,e=>{clearTimeout(timer);socket.close();e?reject(e):resolve({sent:data.length});});}});}
+ if(kind==='webhook.listen'){
+  if(typeof p.secret!=='string'||p.secret.length<24)throw Error('Секрет webhook должен содержать минимум 24 символа');const serverKey=`${project}:${p.port}`;if(servers.has(serverKey))return {port:p.port};
+  const server=http.createServer(async(req,res)=>{const expected=Buffer.from(`Bearer ${p.secret}`),actual=Buffer.from(req.headers.authorization||'');if(req.method!=='POST'||actual.length!==expected.length||!timingSafeEqual(actual,expected)){res.writeHead(401).end();return;}try{let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1_000_000){res.writeHead(413).end();return;}chunks.push(chunk);}const body=Buffer.concat(chunks).toString();let value;try{value=JSON.parse(body);}catch{value=body;}ctx.services.event('webhook_receive',{value,path:req.url});res.writeHead(202).end('Accepted');}catch{res.writeHead(400).end();}});server.requestTimeout=15000;await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(p.port,'127.0.0.1',resolve);});server.on('error',ctx.services.error);servers.set(serverKey,server);return {port:p.port,host:'127.0.0.1'};
+ }
+ if(kind==='voice.control'){
+  if(!ctx.guild?.id)throw Error('Нужен сервер');const voice=await import('@discordjs/voice');const voiceKey=`${project}:${ctx.guild.id}`;let session=voices.get(voiceKey);
+  if(p.action==='join'){const guild=await ctx.services.client.guilds.fetch(ctx.guild.id);const c=await guild.channels.fetch(p.channel);if(!c?.isVoiceBased())throw Error('Укажите голосовой канал');if(session){session.player.stop();session.connection.destroy();}const connection=voice.joinVoiceChannel({channelId:c.id,guildId:guild.id,adapterCreator:guild.voiceAdapterCreator,group:project});try{await voice.entersState(connection,voice.VoiceConnectionStatus.Ready,20000);}catch(e){connection.destroy();throw e;}const player=voice.createAudioPlayer();session={connection,player,queue:[]};session.advance=()=>{const next=session.queue.shift();if(next)player.play(voice.createAudioResource(next));};player.on(voice.AudioPlayerStatus.Idle,session.advance);player.on('error',ctx.services.error);connection.subscribe(player);voices.set(voiceKey,session);return {connected:true};}
+  if(!session)throw Error('Сначала подключите бота к голосовому каналу');switch(p.action){case 'play':{const path=safeFile(project,p.file);session.queue.push(path);if(session.player.state.status===voice.AudioPlayerStatus.Idle)session.advance();break;}case 'pause':session.player.pause();break;case 'resume':session.player.unpause();break;case 'stop':session.queue=[];session.player.stop();break;case 'leave':session.queue=[];session.player.stop();session.connection.destroy();voices.delete(voiceKey);break;case 'queue':return session.queue.map(p=>p.split(/[\\/]/).at(-1));}return {queued:session.queue.length};
+ }
+ throw Error('Неизвестная интеграция');
+}

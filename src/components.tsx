@@ -1,0 +1,14 @@
+import { useEffect, useRef, type ReactNode } from 'react';
+import { X, SpinnerGap, Lightning, GitBranch, ChatCircleText, ShieldCheck, Database, ArrowsSplit, PlugsConnected, Cube, Bug, Robot, Function as FunctionIcon } from '@phosphor-icons/react';
+import { AnimatePresence, motion } from 'motion/react';
+export const icons:Record<string,typeof Cube>={triggers:Lightning,conditions:GitBranch,messages:ChatCircleText,moderation:ShieldCheck,data:Database,flow:ArrowsSplit,integrations:PlugsConnected,systems:Cube,service:Bug,group:Cube};
+export function GroupIcon({group,size=20}:{group:string;size?:number}){const Icon=icons[group]||FunctionIcon;return <Icon size={size} weight="regular"/>;}
+export function Logo(){return <div className="logo"><span className="logo-mark"><Robot size={23} weight="fill"/></span><strong>DBK<span className="logo-period">.</span></strong></div>;}
+export function Spinner(){return <SpinnerGap className="spin" size={17}/>;}
+export function Modal({title,subtitle,children,onClose,wide=false}:{title:string;subtitle?:string;children:ReactNode;onClose:()=>void;wide?:boolean}){
+ const ref=useRef<HTMLDivElement>(null);useEffect(()=>{const old=document.activeElement as HTMLElement;const element=ref.current;const focusable=()=>Array.from(element?.querySelectorAll<HTMLElement>('button,input,select,textarea,[tabindex="0"]')||[]).filter(x=>!x.hasAttribute('disabled'));focusable()[0]?.focus();const key=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();if(e.key==='Tab'){const all=focusable(),first=all[0],last=all.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}};document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);old?.focus();};},[onClose]);
+ return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}><motion.div ref={ref} className={`modal ${wide?'wide':''}`} role="dialog" aria-modal="true" aria-label={title} initial={{opacity:0,y:12,scale:.99}} animate={{opacity:1,y:0,scale:1}} transition={{duration:.18}}><header><div><h2>{title}</h2>{subtitle&&<p>{subtitle}</p>}</div><button className="icon" aria-label="Закрыть" onClick={onClose}><X size={20}/></button></header>{children}</motion.div></div>;
+}
+export function Empty({title,text,children}:{title:string;text:string;children?:ReactNode}){return <div className="empty"><div className="empty-icon"><Cube size={32}/></div><h3>{title}</h3><p>{text}</p>{children}</div>;}
+export type Notice={id:number;text:string;error?:boolean};
+export function Toasts({notices}:{notices:Notice[]}){return <div className="toasts" aria-live="polite"><AnimatePresence>{notices.map(n=><motion.div key={n.id} className={`toast ${n.error?'error':''}`} initial={{opacity:0,y:15}} animate={{opacity:1,y:0}} exit={{opacity:0,y:8}}>{n.text}</motion.div>)}</AnimatePresence></div>;}

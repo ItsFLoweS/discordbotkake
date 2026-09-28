@@ -1,0 +1,58 @@
+name: Build DBK Windows
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dbk-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install application dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install Node runtime dependencies
+        run: npm install --prefix runtime --omit=dev --no-audit --no-fund
+      - name: Check runtime syntax
+        run: npm run check:runtime
+      - name: Prepare bundled Node runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force src-tauri/resources/runtime | Out-Null
+          Copy-Item -Path runtime/* -Destination src-tauri/resources/runtime -Recurse -Force
+          Copy-Item -LiteralPath (Get-Command node).Source -Destination src-tauri/resources/node.exe
+      - name: Build Windows executable and installer
+        run: npm run tauri -- build
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: DBK-Windows-Installer
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload portable application with runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force portable | Out-Null
+          Copy-Item src-tauri/target/release/dbk.exe portable/DBK.exe
+          Copy-Item src-tauri/resources portable/resources -Recurse
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DBK-Windows-Portable
+          path: portable/
+          if-no-files-found: error
+          retention-days: 30

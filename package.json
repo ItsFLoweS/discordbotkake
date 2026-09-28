@@ -1,0 +1,7 @@
+{
+  "name": "dbk", "version": "0.1.0", "private": true, "type": "module",
+  "description": "DBK — Discord Bot Kit. By ItsFloweS",
+  "scripts": { "dev": "vite --host 127.0.0.1", "build": "tsc -b && vite build", "tauri": "tauri", "desktop": "tauri dev", "check:runtime": "node scripts/check-syntax.mjs" },
+  "dependencies": { "@tauri-apps/api": "^2.8.0", "@xyflow/react": "^12.8.0", "@phosphor-icons/react": "^2.1.10", "@fontsource-variable/manrope": "^5.2.0", "@fontsource/jetbrains-mono": "^5.2.0", "react": "^19.1.0", "react-dom": "^19.1.0", "zustand": "^5.0.8", "motion": "^12.23.0" },
+  "devDependencies": { "@tauri-apps/cli": "^2.8.0", "@types/react": "^19.1.0", "@types/react-dom": "^19.1.0", "@vitejs/plugin-react": "^4.7.0", "typescript": "~5.9.2", "vite": "^6.3.5" }
+}
