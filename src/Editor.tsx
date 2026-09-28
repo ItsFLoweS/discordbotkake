@@ -83,7 +83,16 @@ function Canvas({runs}:{runs:Run[]}){
  const active=runs.find(r=>r.scenario===scenarioId&&['running','paused'].includes(r.status));
  const lockedIds=useMemo(()=>{
   const locked=new Set<string>();const all=scenario?.nodes||[];
-  for(const node of all){let current:BlockNode|undefined=node;const visited=new Set<string>();while(current&&!visited.has(current.id)){if(current.data.frozen){locked.add(node.id);break;}visited.add(current.id);const parentId=current.parentId;current=parentId?all.find(n=>n.id===parentId):undefined;}}
+  for(const node of all){
+   let current:BlockNode|undefined=node;
+   const visited=new Set<string>();
+   while(current&&!visited.has(current.id)){
+    if(current.data.frozen){locked.add(node.id);break;}
+    visited.add(current.id);
+    const parentId:string|undefined=current.parentId;
+    current=parentId?all.find(n=>n.id===parentId):undefined;
+   }
+  }
   return locked;
  },[scenario?.nodes]);
  const nodes=useMemo(()=>scenario?.nodes.map(n=>({...n,draggable:!lockedIds.has(n.id),className:[active?.active===n.id?'executing':'',lockedIds.has(n.id)?'frozen-node':''].filter(Boolean).join(' ')}))||[],[scenario?.nodes,active?.active,lockedIds]);
