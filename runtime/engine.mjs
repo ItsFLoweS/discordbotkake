@@ -59,7 +59,7 @@ export async function execute(scenario,ctx,budget) {
     switch(p.operation){case 'set':result=value;break;case 'add':result=Number(old||0)+Number(value);break;case 'subtract':result=Number(old||0)-Number(value);break;case 'multiply':result=Number(old||0)*Number(value);break;case 'divide':if(!Number(value))throw Error('Деление на ноль');result=Number(old||0)/Number(value);break;case 'push':result=[...(Array.isArray(old)?old:[]),value];break;case 'remove':result=(Array.isArray(old)?old:[]).filter(v=>JSON.stringify(v)!==JSON.stringify(value));break;case 'delete':result=undefined;break;}
     if(typeof result==='number'&&!Number.isFinite(result))throw Error('Результат не является конечным числом');if(p.scope==='temp'){if(result===undefined)delete ctx.temp[p.key];else ctx.temp[p.key]=result;}else setVar(ctx.project.id,p.scope,owner(ctx,p.scope),p.key,result);
    }else {result=await action(kind,p,ctx);if(kind.startsWith('condition.'))port=result?'true':'false';}
-   if(p.output&&!unsafe.has(p.output))ctx.temp[p.output]=plain(result);entry.status='success';entry.result=plain(result);id=next(n.id,port);
+   if(p.output&&!unsafe.has(p.output))ctx.temp[p.output]=plain(result);entry.status='success';const encoded=JSON.stringify(plain(result));entry.result=encoded?.length>2000?encoded.slice(0,2000)+'…':plain(result);id=next(n.id,port);
   }catch(e){entry.status=e instanceof FlowSignal?'success':'error';entry.error=e.message;throw e;}
  }}
  await walk(start.id);

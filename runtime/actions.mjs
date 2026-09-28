@@ -1,5 +1,5 @@
 ﻿import { PermissionsBitField, EmbedBuilder, ActionRowBuilder, ModalBuilder, TextInputBuilder, ChannelType } from 'discord.js';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { appendFile, writeFile } from 'node:fs/promises';
 import { db, transaction, log, safeFile } from './store.mjs';
 import { transform, regex, http, file, sql, external } from './utils.mjs';
@@ -8,7 +8,8 @@ import { integration } from './integrations.mjs';
 export async function channel(ctx,id){const value=String(id||ctx.channel?.id||'').replace(/[<#>]/g,'');if(!value)throw Error('Не указан канал');const c=await ctx.services.client.channels.fetch(value);if(!c)throw Error('Канал не найден');return c;}
 export async function member(ctx,id){if(!ctx.guild?.id)throw Error('Действие доступно только на сервере');const g=await ctx.services.client.guilds.fetch(ctx.guild.id);return g.members.fetch(String(id||ctx.user?.id||'').replace(/[<@!>]/g,''));}
 export async function send(ctx,payload,mode='reply',targetChannel,targetUser){const i=ctx.interaction;payload={allowedMentions:{parse:[]},...payload};if(mode==='dm'){const u=await ctx.services.client.users.fetch(String(targetUser||ctx.user?.id));return u.send(payload);}if(mode==='reply'&&i){if(i.deferred&&!ctx.replied){ctx.replied=true;const {flags,...rest}=payload;return i.editReply(rest);}if(i.replied||ctx.replied)return i.followUp(payload);ctx.replied=true;return i.reply({...payload,fetchReply:true});}if(mode==='reply'&&ctx.message)return ctx.message.reply(payload);return (await channel(ctx,targetChannel)).send(payload);}
-function compare(a,b,op){switch(op){case 'equals':return JSON.stringify(a)===JSON.stringify(b)||String(a)===String(b);case 'not_equals':return !(JSON.stringify(a)===JSON.stringify(b)||String(a)===String(b));case 'greater':return Number(a)>Number(b);case 'less':return Number(a)<Number(b);case 'gte':return Number(a)>=Number(b);case 'lte':return Number(a)<=Number(b);case 'contains':return Array.isArray(a)?a.includes(b):String(a??'').includes(String(b));case 'starts':return String(a??'').startsWith(String(b));case 'ends':return String(a??'').endsWith(String(b));default:throw Error('Неизвестный оператор');}}
+function comparable(value){if(Number.isFinite(Number(value)))return Number(value);if(typeof value==='string'&&/^\d{4}-\d{2}-\d{2}/.test(value)&&Number.isFinite(Date.parse(value)))return Date.parse(value);return String(value??'');}
+function compare(a,b,op){switch(op){case 'equals':return JSON.stringify(a)===JSON.stringify(b)||String(a)===String(b);case 'not_equals':return !(JSON.stringify(a)===JSON.stringify(b)||String(a)===String(b));case 'greater':return comparable(a)>comparable(b);case 'less':return comparable(a)<comparable(b);case 'gte':return comparable(a)>=comparable(b);case 'lte':return comparable(a)<=comparable(b);case 'contains':return Array.isArray(a)?a.includes(b):String(a??'').includes(String(b));case 'starts':return String(a??'').startsWith(String(b));case 'ends':return String(a??'').endsWith(String(b));default:throw Error('Неизвестный оператор');}}
 const bool=v=>!(v===false||v==='false'||v===0||v==='0'||v==null||v==='');
 export async function action(kind,p,ctx){
  if(kind.startsWith('system.'))return system(kind,p,ctx);
