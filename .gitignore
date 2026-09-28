@@ -7,3 +7,5 @@ src-tauri/resources/
 !.env.example
 *.sqlite*
 *.dbk
+.dbk-data/
+portable/

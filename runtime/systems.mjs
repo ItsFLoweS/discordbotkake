@@ -3,6 +3,7 @@ import { PermissionsBitField } from 'discord.js';
 import { db, transaction, getVar, setVar } from './store.mjs';
 import { member, channel, send } from './actions.mjs';
 const windows=new Map();
+const ticketLocks=new Set();
 function windowCount(key,seconds){const now=Date.now();const timestamps=(windows.get(key)||[]).filter(t=>now-t<seconds*1000);timestamps.push(now);windows.set(key,timestamps);if(windows.size>10000)for(const [k,v] of windows)if(now-v.at(-1)>600000)windows.delete(k);return timestamps.length;}
 const balance=(p,g,u)=>Number(getVar(p,'user',`${g}:${u}`,'balance',0));
 const money=(p,g,u,v)=>setVar(p,'user',`${g}:${u}`,'balance',v);
@@ -33,9 +34,12 @@ export async function system(kind,p,ctx){
   if(item?.roleId){try{await (await member(ctx,user)).roles.add(item.roleId);}catch(e){transaction(()=>{money(project,guild,user,balance(project,guild,user)+item.price);const inventory=getVar(project,'user',`${guild}:${user}`,'inventory',[]);const i=inventory.lastIndexOf(item.id);if(i>=0)inventory.splice(i,1);setVar(project,'user',`${guild}:${user}`,'inventory',inventory);});throw Error(`Не удалось выдать роль; сумма возвращена: ${e.message}`);}}return result;
  }
  case 'system.ticket':{
-  if(p.action==='close'){const c=await channel(ctx);const ticket=db.prepare('SELECT owner FROM tickets WHERE project=? AND channel=?').get(project,c.id);if(!ticket)throw Error('Этот канал не является тикетом DBK');const m=await member(ctx);if(ticket.owner!==ctx.user.id&&!m.permissions.has('ManageChannels'))throw Error('Закрыть тикет может автор или модератор');await c.delete('Закрытие тикета DBK');db.prepare('DELETE FROM tickets WHERE project=? AND channel=?').run(project,c.id);return {closed:true};}
-  const old=db.prepare('SELECT channel FROM tickets WHERE project=? AND owner=?').get(project,ctx.user.id);if(old){try{const c=await ctx.services.client.channels.fetch(old.channel);if(c)return {id:c.id,existing:true};}catch{}db.prepare('DELETE FROM tickets WHERE project=? AND channel=?').run(project,old.channel);}
-  const g=await ctx.services.client.guilds.fetch(guild);const access=['ViewChannel','SendMessages','ReadMessageHistory'];const overwrites=[{id:g.id,deny:['ViewChannel']},{id:ctx.user.id,allow:access},{id:ctx.services.client.user.id,allow:[...access,'ManageChannels']}];if(p.supportRole)overwrites.push({id:p.supportRole,allow:access});const c=await g.channels.create({name:`ticket-${ctx.user.username}`.slice(0,90),type:0,parent:p.category||undefined,permissionOverwrites:overwrites});db.prepare('INSERT INTO tickets VALUES(?,?,?)').run(project,c.id,ctx.user.id);return {id:c.id};
+  const ticketOwner=`${guild}:${ctx.user.id}`;
+  if(p.action==='close'){const c=await channel(ctx);const ticket=db.prepare('SELECT owner FROM tickets WHERE project=? AND channel=?').get(project,c.id);if(!ticket)throw Error('Этот канал не является тикетом DBK');const m=await member(ctx);if(ticket.owner!==ticketOwner&&!m.permissions.has('ManageChannels'))throw Error('Закрыть тикет может автор или модератор');await c.delete('Закрытие тикета DBK');db.prepare('DELETE FROM tickets WHERE project=? AND channel=?').run(project,c.id);return {closed:true};}
+  const lock=`${project}:${ticketOwner}`;if(ticketLocks.has(lock))throw Error('Тикет уже создаётся');ticketLocks.add(lock);
+  try{const old=db.prepare('SELECT channel FROM tickets WHERE project=? AND owner=?').get(project,ticketOwner);if(old){try{const c=await ctx.services.client.channels.fetch(old.channel);if(c)return {id:c.id,existing:true};}catch{}db.prepare('DELETE FROM tickets WHERE project=? AND channel=?').run(project,old.channel);}
+   const g=await ctx.services.client.guilds.fetch(guild);const access=['ViewChannel','SendMessages','ReadMessageHistory'];const overwrites=[{id:g.id,deny:['ViewChannel']},{id:ctx.user.id,allow:access},{id:ctx.services.client.user.id,allow:[...access,'ManageChannels']}];if(p.supportRole)overwrites.push({id:p.supportRole,allow:access});const c=await g.channels.create({name:`ticket-${ctx.user.username}`.slice(0,90),type:0,parent:p.category||undefined,permissionOverwrites:overwrites});db.prepare('INSERT INTO tickets VALUES(?,?,?)').run(project,c.id,ticketOwner);return {id:c.id};
+  }finally{ticketLocks.delete(lock);}
  }
  case 'system.giveaway':{
   if(p.action==='end')return finishGiveaway(project,p.id,ctx.services.client);

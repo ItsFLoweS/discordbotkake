@@ -23,7 +23,7 @@ export function startBot(id,token){
  const project=getProject(id),errors=validateProject(project);if(errors.length)throw Error(errors.join('\n'));if(!token)throw Error('Токен не указан');
  const intentNames=project.settings.intents||['Guilds'];const intents=intentNames.map(n=>GatewayIntentBits[n]);if(intents.some(v=>v===undefined))throw Error('Неизвестный Gateway Intent');
  const client=new Client({intents,partials:[Partials.Channel,Partials.Message,Partials.Reaction,Partials.User,Partials.GuildMember],allowedMentions:{parse:[]}});
- const b={project,client,status:'connecting',token,services:null};
+ const b={project,client,status:'connecting',token,services:null,voiceSessions:new Map()};
  b.services={client,error:e=>{const message=String(e.message||e).replaceAll(token,'[TOKEN]');b.lastError=message;log(id,'error',message);},event:(event,input)=>dispatch(b,event,input)};bots.set(id,b);
  client.on('error',b.services.error);client.on('warn',m=>log(id,'warning',m));client.on('shardReconnecting',()=>{b.status='connecting';});client.on('shardResume',()=>{b.status='online';});client.on('shardDisconnect',event=>{if([4004,4013,4014].includes(event.code)){b.status='error';b.services.error(Error(`Discord Gateway ${event.code}: проверьте токен и разрешённые intents в Developer Portal`));}});
  client.once('clientReady',()=>{if(b.status==='stopping')return;b.status='online';client.user.setPresence({status:project.settings.status||'online',activities:project.settings.activity?[{name:project.settings.activity,type:0}]:[]});try{schedule(b);dispatch(b,'ready',{bot:userData(client.user)});log(id,'info',`Бот ${client.user.tag} подключён к Discord`);}catch(e){b.services.error(e);}});
@@ -44,7 +44,7 @@ export function startBot(id,token){
  for(const [event,name] of Object.entries(events))client.on(event,(...args)=>{void(async()=>{
   let value=event.endsWith('Update')?args[1]:args[0];if(value?.partial&&value.fetch)try{value=await value.fetch();}catch{}
   const input=base(value);if(name.startsWith('reaction_')){input.user=userData(args[1]);input.emoji=value?.emoji?.id||value?.emoji?.name;}if(name.startsWith('scheduled_event_user_'))input.user=userData(args[1]);
-  if(name==='voice_update'){input.user=userData(value.member?.user);input.oldChannelId=args[0].channelId;input.newChannelId=value.channelId;input.voice={mute:value.mute,deaf:value.deaf};}
+  if(name==='voice_update'){input.user=userData(value.member?.user);input.oldChannelId=args[0].channelId;input.newChannelId=value.channelId;const key=`${value.guild.id}:${value.id}`;let seconds=0;if(args[0].channelId!==value.channelId){const started=b.voiceSessions.get(key);if(started)seconds=Math.floor((Date.now()-started)/1000);if(value.channelId)b.voiceSessions.set(key,Date.now());else b.voiceSessions.delete(key);}input.voice={mute:value.mute,deaf:value.deaf,seconds};}
   if(name==='presence_update'){input.status=value.status;input.activities=value.activities.map(a=>({name:a.name,type:a.type}));}
   if(name==='member_update'){if(args[0].premiumSinceTimestamp!==value.premiumSinceTimestamp&&value.premiumSinceTimestamp)dispatch(b,'boost',input);if(args[0].pending&&!value.pending)dispatch(b,'onboarding_complete',input);}
   dispatch(b,name,input);

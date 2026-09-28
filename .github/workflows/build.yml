@@ -35,6 +35,8 @@ jobs:
           New-Item -ItemType Directory -Force src-tauri/resources/runtime | Out-Null
           Copy-Item -Path runtime/* -Destination src-tauri/resources/runtime -Recurse -Force
           Copy-Item -LiteralPath (Get-Command node).Source -Destination src-tauri/resources/node.exe
+          $nodeLicense = Join-Path (Split-Path -Parent (Get-Command node).Source) 'LICENSE'
+          if (Test-Path -LiteralPath $nodeLicense) { Copy-Item -LiteralPath $nodeLicense -Destination src-tauri/resources/runtime/NODE-LICENSE.txt }
       - name: Generate application icon
         run: node scripts/prepare-icon.mjs
       - name: Build Windows executable and installer
@@ -52,6 +54,7 @@ jobs:
           New-Item -ItemType Directory -Force portable | Out-Null
           Copy-Item src-tauri/target/release/dbk.exe portable/DBK.exe
           Copy-Item src-tauri/resources portable/resources -Recurse
+          Copy-Item README.md portable/README.md
       - uses: actions/upload-artifact@v4
         with:
           name: DBK-Windows-Portable

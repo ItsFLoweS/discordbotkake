@@ -4,12 +4,13 @@ import { byId } from './catalog.mjs';
 import { getVar, setVar, owner, log } from './store.mjs';
 import { action } from './actions.mjs';
 const unsafe=new Set(['__proto__','prototype','constructor']);
+const publicRoots=new Set(['user','guild','channel','temp','args','options','locale','content','customId','values','fields','focused','targetUser','targetMessage','event','voice','oldChannelId','newChannelId','status','activities','connection','topic','value','path','emoji','bot','audit']);
 export function pathGet(obj,path) { return String(path).split('.').reduce((a,k)=>unsafe.has(k)?undefined:a?.[k],obj); }
 export function plain(value) { if(value===undefined)return null; if(typeof value==='bigint')return String(value); if(value===null||typeof value!=='object')return value; try{return JSON.parse(JSON.stringify(value,(_,v)=>typeof v==='bigint'?String(v):v));}catch{return String(value);} }
 function parse(value) { if(typeof value!=='string')return value; try{return JSON.parse(value);}catch{return value;} }
 export function resolveValue(value,ctx) {
  if(typeof value==='string') {
-  const lookup=path=>{const [scope,key,...rest]=path.trim().split('.'); if(['global','guildVar','userVar','channelVar'].includes(scope)){const s={global:'global',guildVar:'guild',userVar:'user',channelVar:'channel'}[scope]; const v=getVar(ctx.project.id,s,owner(ctx,s),key);return rest.length?pathGet(v,rest.join('.')):v;}return pathGet(ctx,path.trim());};
+  const lookup=path=>{const [scope,key,...rest]=path.trim().split('.'); if(['global','guildVar','userVar','channelVar'].includes(scope)){const s={global:'global',guildVar:'guild',userVar:'user',channelVar:'channel'}[scope]; const v=getVar(ctx.project.id,s,owner(ctx,s),key);return rest.length?pathGet(v,rest.join('.')):v;}if(scope==='message'){const m=ctx.message;const snapshot=m?{id:m.id,content:m.content,channelId:m.channelId,url:m.url}:null;return key?pathGet(snapshot,[key,...rest].join('.')):snapshot;}if(!publicRoots.has(scope))return undefined;return pathGet(ctx,path.trim());};
   const exact=value.match(/^\{\{\s*([^{}]+?)\s*\}\}$/); if(exact)return lookup(exact[1]);
   return value.replace(/\{\{\s*([^{}]+?)\s*\}\}/g,(_,p)=>{const v=lookup(p); return v==null?'':typeof v==='object'?JSON.stringify(v):String(v);});
  }

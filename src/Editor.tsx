@@ -1,11 +1,11 @@
-import { useState, useMemo, useCallback, memo } from 'react';
+import { useState, useMemo, useCallback, memo, type DragEvent } from 'react';
 import { ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import { MagnifyingGlass, Plus, X, ArrowRight, Trash, Copy, PauseCircle, CaretDown, DotsSixVertical, Info, SquaresFour, Check, ArrowSquareOut } from '@phosphor-icons/react';
 import { byId, groups, catalog } from '../runtime/catalog.mjs';
 import { useEditor } from './store';
 import { GroupIcon, Empty } from './components';
 import type { BlockNode, Field, Run } from './types';
-const portNames:Record<string,string>={next:'Далее',true:'Да',false:'Нет',body:'Повторять',done:'Готово',catch:'Ошибка'};
+const portNames:Record<string,string>={next:'Далее',true:'Да',false:'Нет',body:'Действия',done:'Готово',catch:'Ошибка'};
 const nodeTypes={block:memo(function Block({data,id,selected}:NodeProps<BlockNode>){
  const def=byId[data.kind];const select=useEditor(s=>s.select);if(!def)return <div className="flow-node invalid">Неизвестный блок: {data.kind}</div>;
  const summary=String(data.params.content||data.params.name||data.params.event||data.params.message||data.params.key||data.params.action||data.params.scenario||data.params.text||def.description);
@@ -22,7 +22,28 @@ function FieldInput({field,value,onChange,scenarioId}:{field:Field;value:unknown
  if(field.key==='scenario')return <select value={String(value||'')} onChange={e=>onChange(e.target.value)}><option value="">Выберите сценарий</option>{project?.scenarios.filter(s=>s.id!==scenarioId).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>;
  if(field.type==='boolean')return <button className={`toggle ${value?'on':''}`} role="switch" aria-checked={Boolean(value)} aria-label={field.label} onClick={()=>onChange(!value)}><span/></button>;
  if(field.type==='select')return <select value={String(value??'')} onChange={e=>onChange(e.target.value)}>{field.options?.map(o=><option value={o} key={o}>{o}</option>)}</select>;
- if(field.type==='json'||field.type==='textarea')return <><textarea spellCheck={false} className={field.type==='json'?'code-input':''} rows={field.type==='json'?5:3} value={typeof value==='string'?value:JSON.stringify(value,null,2)} onChange={e=>{onChange(e.target.value);if(field.type==='json'){try{JSON.parse(e.target.value);setError('');}catch{setError('Проверьте JSON или используйте {{переменную}}');}}}/>{error&&<small className="field-warning">{error}</small>}</>;
+ if(field.type==='json'||field.type==='textarea')return (
+  <>
+   <textarea
+    spellCheck={false}
+    className={field.type==='json'?'code-input':''}
+    rows={field.type==='json'?5:3}
+    value={typeof value==='string'?value:JSON.stringify(value,null,2)}
+    onChange={e=>{
+     onChange(e.target.value);
+     if(field.type==='json'){
+      try{
+       JSON.parse(e.target.value);
+       setError('');
+      }catch{
+       setError('Проверьте JSON или используйте {{переменную}}');
+      }
+     }
+    }}
+   />
+   {error&&<small className="field-warning">{error}</small>}
+  </>
+ );
  return <input type="text" inputMode={field.type==='number'?'decimal':undefined} value={String(value??'')} onChange={e=>onChange(field.type==='number'&&!e.target.value.includes('{')&&e.target.value!==''&&Number.isFinite(Number(e.target.value))?Number(e.target.value):e.target.value)} spellCheck={false}/>;
 }
 function OptionBuilder({value,onChange}:{value:unknown;onChange:(v:string)=>void}){
@@ -51,8 +72,53 @@ function Inspector(){const {project,scenarioId,selected,select,updateNode,rename
  <div className="variable-hint"><span>Переменные в тексте</span><code>{'{{user.username}}'}</code><code>{'{{options.name}}'}</code><code>{'{{temp.result}}'}</code><code>{'{{global.name}}'}</code></div><div className="inspector-actions"><button onClick={()=>{copy();paste();}}><Copy size={15}/>Дублировать</button><button className={node.data.breakpoint?'active':''} onClick={()=>toggleBreakpoint(node.id)} title="Приостанавливает настоящий запуск на этом блоке"><PauseCircle size={15}/>Пауза</button><button className="icon danger-text" aria-label="Удалить блок" onClick={()=>removeNode(node.id)}><Trash size={16}/></button></div></div></aside>;
 }
 function Library(){const [search,setSearch]=useState(''),[expanded,setExpanded]=useState<string[]>(['triggers','messages']);const addNode=useEditor(s=>s.addNode);const {screenToFlowPosition}=useReactFlow();return <aside className="library"><div className="panel-heading">Блоки<span className="count">{catalog.length}</span></div><div className="search"><MagnifyingGlass size={17}/><input placeholder="Найти блок…" aria-label="Поиск блоков" value={search} onChange={e=>setSearch(e.target.value)}/><kbd>/</kbd></div><div className="library-groups">{groups.map(g=>{const items=g.items.filter(n=>`${n.title} ${n.description} ${n.id}`.toLowerCase().includes(search.toLowerCase()));if(!items.length)return null;const open=search||expanded.includes(g.id);return <section key={g.id}><button className={`group-heading ${open?'open':''}`} onClick={()=>setExpanded(expanded.includes(g.id)?expanded.filter(id=>id!==g.id):[...expanded,g.id])}><GroupIcon group={g.id} size={17}/><span>{g.title}</span><CaretDown size={12}/></button>{open&&<div className="group-items">{items.map(n=><button key={n.id} className="library-item" draggable title={n.description} onDragStart={e=>{e.dataTransfer.setData('application/dbk-node',n.id);e.dataTransfer.effectAllowed='move';}} onClick={()=>{const el=document.querySelector('.react-flow');const r=el?.getBoundingClientRect();addNode(n.id,r?screenToFlowPosition({x:r.left+r.width/2-140,y:r.top+r.height/2-60}):undefined);}}><span>{n.title}</span><Plus size={13}/></button>)}</div>}</section>;})}{!groups.some(g=>g.items.some(n=>`${n.title} ${n.description} ${n.id}`.toLowerCase().includes(search.toLowerCase())))&&<p className="no-results">Ничего не найдено</p>}</div><div className="library-footer"><span className="status-dot"/>Все блоки бесплатны</div></aside>;}
-function Canvas({runs}:{runs:Run[]}){const {project,scenarioId,changeNodes,changeEdges,connect,select,addNode,checkpoint,group}=useEditor();const scenario=project?.scenarios.find(s=>s.id===scenarioId);const {screenToFlowPosition}=useReactFlow();const active=runs.find(r=>r.scenario===scenarioId&&['running','paused'].includes(r.status));const nodes=useMemo(()=>scenario?.nodes.map(n=>({...n,className:active?.active===n.id?'executing':''}))||[],[scenario?.nodes,active?.active]);const drop=useCallback((e:React.DragEvent)=>{e.preventDefault();const kind=e.dataTransfer.getData('application/dbk-node');if(byId[kind])addNode(kind,screenToFlowPosition({x:e.clientX,y:e.clientY}));},[addNode,screenToFlowPosition]);
+function Canvas({runs}:{runs:Run[]}){const {project,scenarioId,changeNodes,changeEdges,connect,select,addNode,checkpoint,group}=useEditor();const scenario=project?.scenarios.find(s=>s.id===scenarioId);const {screenToFlowPosition}=useReactFlow();const active=runs.find(r=>r.scenario===scenarioId&&['running','paused'].includes(r.status));const nodes=useMemo(()=>scenario?.nodes.map(n=>({...n,className:active?.active===n.id?'executing':''}))||[],[scenario?.nodes,active?.active]);const drop=useCallback((e:DragEvent)=>{e.preventDefault();const kind=e.dataTransfer.getData('application/dbk-node');if(byId[kind])addNode(kind,screenToFlowPosition({x:e.clientX,y:e.clientY}));},[addNode,screenToFlowPosition]);
  if(!scenario)return <Empty title="Добавьте сценарий" text="Каждый сценарий хранит отдельную логику вашего бота."/>;
- return <div className="canvas-wrap"><ReactFlow key={scenarioId} nodes={nodes} edges={scenario.edges} nodeTypes={nodeTypes} onNodesChange={changeNodes} onEdgesChange={changeEdges} onConnect={connect} onNodeClick={(_,n)=>select(n.id)} onPaneClick={()=>select(null)} onNodeDragStart={checkpoint} onDrop={drop} onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='move';}} fitView fitViewOptions={{padding:.35,maxZoom:1}} minZoom={.2} maxZoom={1.8} deleteKeyCode={['Backspace','Delete']} selectionKeyCode="Shift" panOnScroll selectionOnDrag panOnDrag={[1,2]} defaultEdgeOptions={{type:'smoothstep',style:{stroke:'var(--edge)',strokeWidth:1.7}} proOptions={{hideAttribution:false}}><Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--dot)"/><Controls showInteractive={false}/><MiniMap pannable zoomable nodeColor="var(--minimap-node)" maskColor="var(--minimap-mask)"/></ReactFlow><div className="canvas-label"><span className="status-dot"/><span>{scenario.name}</span><span className="canvas-label-divider"/>{scenario.nodes.filter(n=>n.type!=='group').length} блоков</div><button className="group-selection" title="Сгруппировать выбранные блоки" onClick={group}><SquaresFour size={16}/>Группа</button>{active&&<div className="run-indicator"><span className="status-dot pulse"/>{active.status==='paused'?'Выполнение на паузе':'Сценарий выполняется'}</div>}</div>;
+ return (
+  <div className="canvas-wrap">
+   <ReactFlow
+    key={scenarioId}
+    nodes={nodes}
+    edges={scenario.edges}
+    nodeTypes={nodeTypes}
+    onNodesChange={changeNodes}
+    onEdgesChange={changeEdges}
+    onConnect={connect}
+    onNodeClick={(_,n)=>select(n.id)}
+    onPaneClick={()=>select(null)}
+    onNodeDragStart={checkpoint}
+    onDrop={drop}
+    onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='move';}}
+    fitView
+    fitViewOptions={{padding:.35,maxZoom:1}}
+    minZoom={.2}
+    maxZoom={1.8}
+    deleteKeyCode={['Backspace','Delete']}
+    selectionKeyCode="Shift"
+    panOnScroll
+    selectionOnDrag
+    panOnDrag={[1,2]}
+    defaultEdgeOptions={{
+     type:'smoothstep',
+     style:{stroke:'var(--edge)',strokeWidth:1.7}
+    }}
+    proOptions={{hideAttribution:false}}
+   >
+    <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="var(--dot)"/>
+    <Controls showInteractive={false}/>
+    <MiniMap pannable zoomable nodeColor="var(--minimap-node)" maskColor="var(--minimap-mask)"/>
+   </ReactFlow>
+   <div className="canvas-label">
+    <span className="status-dot"/>
+    <span>{scenario.name}</span>
+    <span className="canvas-label-divider"/>
+    {scenario.nodes.filter(n=>n.type!=='group').length} блоков
+   </div>
+   <button className="group-selection" title="Сгруппировать выбранные блоки" onClick={group}>
+    <SquaresFour size={16}/>Группа
+   </button>
+   {active&&<div className="run-indicator"><span className="status-dot pulse"/>{active.status==='paused'?'Выполнение на паузе':'Сценарий выполняется'}</div>}
+  </div>
+ );
 }
 export function Editor({runs}:{runs:Run[]}){return <ReactFlowProvider><div className="editor"><Library/><Canvas runs={runs}/><Inspector/></div></ReactFlowProvider>;}
